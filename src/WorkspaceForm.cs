@@ -11,7 +11,10 @@ namespace DeskRewind
     {
         private readonly ListBox layouts;
         private readonly WorkspacePreview preview;
-        private readonly Workspace currentDisplays;
+        private const string LiveDesktop = "Live desktop";
+        private DesktopLayout currentDesktop;
+        private Workspace liveLayout;
+        private WorkspaceApps.OpenWindow[] openWindows;
         private readonly GlassButton capture, restore, history, actions, minimize, maximize, close;
         private readonly GlassToggle launch;
         private readonly Label feedback;
@@ -36,7 +39,6 @@ namespace DeskRewind
             Text = "DeskRewind Workspaces";
             StartPosition = FormStartPosition.Manual;
             captureShortcut = shortcut;
-            currentDisplays = Workspace.FromDesktop(desktop);
             captionFont = UseFont(14, true);
             headingFont = UseFont(32, true);
             rowFont = UseFont(14, true);
@@ -62,7 +64,7 @@ namespace DeskRewind
             close = CaptionButton("Close", "close", Close);
             close.Destructive = true;
 
-            layouts = new ListBox { AccessibleName = "Saved layouts", BorderStyle = BorderStyle.None, DrawMode = DrawMode.OwnerDrawFixed,
+            layouts = new ListBox { AccessibleName = "Live desktop and saved layouts", BorderStyle = BorderStyle.None, DrawMode = DrawMode.OwnerDrawFixed,
                 ItemHeight = Px(59), IntegralHeight = false, BackColor = Glass.Film, ForeColor = Glass.Text, Font = rowFont };
             layouts.DrawItem += DrawLayout;
             layouts.SelectedIndexChanged += (sender, args) => ShowSelection();
@@ -107,6 +109,7 @@ namespace DeskRewind
             MinimumSize = new Size(Math.Min(Px(750), width), Math.Min(Px(440), height));
             Bounds = new Rectangle(work.X + (work.Width - width) / 2, work.Y + (work.Height - height) / 2, width, height);
             Arrange();
+            UpdateDesktop(desktop);
         }
 
         private Font UseFont(int size, bool strong)
@@ -160,7 +163,8 @@ namespace DeskRewind
 
             restore.SetBounds(width - Px(158), height - Px(61), Px(132), Px(40));
             launch.SetBounds(restore.Left - Px(180), height - Px(61), Px(166), Px(40));
-            feedback.SetBounds(Px(27), height - Px(61), Math.Max(0, launch.Left - Px(43)), Px(40));
+            int statusRight = Selected == null ? width - Px(26) : launch.Left - Px(18);
+            feedback.SetBounds(Px(27), height - Px(61), Math.Max(0, statusRight - Px(27)), Px(40));
             Invalidate();
         }
 
@@ -171,9 +175,11 @@ namespace DeskRewind
             try
             {
                 layouts.Items.Clear();
+                layouts.Items.Add(LiveDesktop);
                 layouts.Items.AddRange(saved.Cast<object>().ToArray());
-                var selected = saved.FirstOrDefault(item => item.Id == selectedId) ?? saved.FirstOrDefault();
-                if (selected != null) layouts.SelectedItem = selected;
+                var selected = saved.FirstOrDefault(item => item.Id == selectedId);
+                if (selected == null) layouts.SelectedIndex = 0;
+                else layouts.SelectedItem = selected;
             }
             finally { layouts.EndUpdate(); }
             ShowSelection();
@@ -190,13 +196,33 @@ namespace DeskRewind
 
         private Workspace Selected { get { return layouts.SelectedItem as Workspace; } }
 
+        internal void UpdateDesktop(DesktopLayout desktop)
+        {
+            if (currentDesktop != null && desktop.SameWindows(currentDesktop)) return;
+            currentDesktop = desktop;
+            openWindows = WorkspaceApps.ReadWindows(desktop);
+            liveLayout = WorkspaceApps.Snapshot(desktop, openWindows, false);
+            liveLayout.Name = LiveDesktop;
+            UpdatePreview();
+            layouts.Invalidate();
+        }
+
         private void ShowSelection()
         {
             var selected = Selected;
-            layouts.Visible = layouts.Items.Count > 0;
-            preview.ShowLayout(selected ?? currentDisplays, selected != null);
+            UpdatePreview();
             ShowLaunchPreference(selected != null && selected.LaunchMissing);
             UpdateActions();
+        }
+
+        private void UpdatePreview()
+        {
+            if (liveLayout == null) return;
+            var selected = Selected;
+            if (selected == null) { preview.ShowLayout(liveLayout, null, null, null); return; }
+            var matches = WorkspaceRestore.Inspect(selected, currentDesktop, openWindows);
+            preview.ShowLayout(selected, matches, new HashSet<string>(openWindows.Select(window => window.AppKey), StringComparer.OrdinalIgnoreCase),
+                (saved, live) => WorkspaceRestore.IsAtSavedPosition(selected, saved, live, currentDesktop.Displays));
         }
 
         private void ShowLaunchPreference(bool launchMissing)
@@ -209,14 +235,18 @@ namespace DeskRewind
         private void UpdateActions()
         {
             layouts.Enabled = capture.Enabled = history.Enabled = !busy;
-            restore.Enabled = actions.Enabled = launch.Enabled = !busy && Selected != null;
+            bool saved = Selected != null;
+            actions.Visible = launch.Visible = restore.Visible = saved;
+            actions.Enabled = launch.Enabled = !busy && saved;
+            restore.Enabled = !busy && saved && Selected.Windows.Count > 0;
+            feedback.Width = Math.Max(0, (saved ? launch.Left - Px(18) : ClientSize.Width - Px(26)) - feedback.Left);
         }
 
         private void DrawLayout(object sender, DrawItemEventArgs e)
         {
             var graphics = e.Graphics;
             using (var background = new SolidBrush(Glass.Film)) graphics.FillRectangle(background, e.Bounds);
-            if (e.Index < 0) return;
+            if (e.Index < 0 || e.Index >= layouts.Items.Count) return;
             graphics.SmoothingMode = SmoothingMode.AntiAlias;
             bool selected = (e.State & DrawItemState.Selected) != 0;
             bool focused = (e.State & DrawItemState.Focus) != 0;
@@ -227,10 +257,12 @@ namespace DeskRewind
             using (var fill = new SolidBrush(selected ? Color.FromArgb(57, 84, 105) : Glass.Card)) Glass.Fill(graphics, fill, icon, Px(8));
             Glass.Icon(graphics, "desktop", icon.X + icon.Width / 2f, icon.Y + icon.Height / 2f, UiScale,
                 selected ? Glass.Accent : Glass.Muted);
-            var layout = (Workspace)layouts.Items[e.Index];
+            var layout = layouts.Items[e.Index] as Workspace;
             int left = icon.Right + Px(9), width = bounds.Right - left - Px(7);
-            Glass.TextAt(graphics, layout.Name, rowFont, new Rectangle(left, bounds.Y + Px(7), width, Px(22)), Glass.Text);
-            Glass.TextAt(graphics, Count(layout.Windows.Count, "window"), smallFont,
+            string name = layout == null ? LiveDesktop : layout.Name;
+            string detail = layout == null ? Count(currentDesktop == null ? 0 : currentDesktop.Windows.Length, "open window") : Count(layout.Windows.Count, "window");
+            Glass.TextAt(graphics, name, rowFont, new Rectangle(left, bounds.Y + Px(7), width, Px(22)), Glass.Text);
+            Glass.TextAt(graphics, detail, smallFont,
                 new Rectangle(left, bounds.Y + Px(29), width, Px(17)), Glass.Muted);
         }
 
@@ -247,7 +279,7 @@ namespace DeskRewind
             }
             Glass.DrawMark(graphics, new Rectangle(Px(20), Px(12), Px(26), Px(26)));
             Glass.TextAt(graphics, DeskRewindApp.DisplayName, captionFont, new Rectangle(Px(55), Px(8), Px(210), Px(34)), Glass.Text);
-            Glass.TextAt(graphics, "Saved layouts", headingFont,
+            Glass.TextAt(graphics, "Window layouts", headingFont,
                 new Rectangle(Px(26), Px(67), capture.Left - Px(38), Px(50)), Glass.Text);
             if (captureShortcut != null)
                 Glass.TextAt(graphics, captureShortcut.Replace("+", " + "), smallFont,
@@ -256,13 +288,10 @@ namespace DeskRewind
             Glass.Panel(graphics, libraryBounds, Glass.Film, Glass.Rim, Px(14));
             using (var border = new Pen(Glass.Rim))
                 graphics.DrawLine(border, libraryBounds.X + Px(11), libraryBounds.Bottom - Px(49), libraryBounds.Right - Px(11), libraryBounds.Bottom - Px(49));
-            Glass.TextAt(graphics, "Library", captionFont,
+            Glass.TextAt(graphics, "Layouts", captionFont,
                 new Rectangle(libraryBounds.X + Px(15), libraryBounds.Y + Px(9), libraryBounds.Width - Px(50), Px(25)), Glass.Text);
-            Glass.TextAt(graphics, layouts.Items.Count.ToString(), smallFont,
+            Glass.TextAt(graphics, Math.Max(0, layouts.Items.Count - 1).ToString(), smallFont,
                 new Rectangle(libraryBounds.Right - Px(42), libraryBounds.Y + Px(9), Px(27), Px(25)), Glass.Muted, TextFormatFlags.Right);
-            if (layouts.Items.Count == 0)
-                Glass.TextAt(graphics, "No saved layouts", smallFont, new Rectangle(libraryBounds.X + Px(15), libraryBounds.Y + Px(51),
-                    libraryBounds.Width - Px(30), Px(26)), Glass.Muted);
         }
 
         private void Rename(Func<Workspace, string, bool> save)
@@ -317,8 +346,8 @@ namespace DeskRewind
                 windowFont = window;
                 DoubleBuffered = ResizeRedraw = true;
                 BackColor = Glass.Film;
-                windows = new PreviewWindowList { AccessibleName = "Captured windows", BorderStyle = BorderStyle.None, DrawMode = DrawMode.OwnerDrawFixed,
-                    ItemHeight = Px(42), IntegralHeight = false, BackColor = Glass.Surface, ForeColor = Glass.Text, Font = windowFont };
+                windows = new PreviewWindowList { AccessibleName = "Open windows", BorderStyle = BorderStyle.None, DrawMode = DrawMode.OwnerDrawFixed,
+                    ItemHeight = Px(53), IntegralHeight = false, BackColor = Glass.Surface, ForeColor = Glass.Text, Font = windowFont };
                 windows.DrawItem += DrawWindow;
                 windows.SelectedIndexChanged += (sender, args) => Invalidate();
                 windows.ViewChanged += () => { if (!scrollTrack.IsEmpty) Invalidate(scrollTrack); };
@@ -327,21 +356,34 @@ namespace DeskRewind
                 Controls.Add(windows);
             }
 
-            internal void ShowLayout(Workspace item, bool isSaved)
+            internal void ShowLayout(Workspace item, Dictionary<WorkspaceWindow, WindowLayout> matches, HashSet<string> openApps,
+                Func<WorkspaceWindow, WindowLayout, bool> atSavedPosition)
             {
-                if (ReferenceEquals(layout, item) && saved == isSaved) return;
+                bool isSaved = matches != null;
+                bool sameView = layout != null && saved == isSaved && (!saved || layout.Id == item.Id);
+                var previous = sameView ? windows.SelectedItem as WindowRow : null;
+                int top = sameView && windows.Items.Count > 0 ? windows.TopIndex : 0;
                 layout = item;
                 saved = isSaved;
-                AccessibleName = (saved ? item.Name + ", " : "Current desktop, ") + Count(item.Screens.Count, "display");
+                AccessibleName = item.Name + ", " + Count(item.Screens.Count, "display");
+                windows.AccessibleName = saved ? "Saved windows and current status" : "Open windows";
                 var screens = item.Screens.OrderBy(screen => screen.Bounds.X).ThenBy(screen => screen.Bounds.Y).ToArray();
-                var rows = screens.SelectMany(screen => item.Windows.Select((window, index) => new WindowRow(window, screen.Label, index))
-                    .Where(row => row.Window.Device == screen.Device)).Cast<object>().ToArray();
+                var rows = screens.SelectMany(screen => item.Windows.Select((window, index) => new { Window = window, Index = index })
+                    .Where(entry => entry.Window.Device == screen.Device).OrderBy(entry => entry.Window.Title, StringComparer.CurrentCultureIgnoreCase)
+                    .Select(entry => new WindowRow(entry.Window, screen.Label, entry.Index, matches, openApps, atSavedPosition))).ToArray();
                 windows.BeginUpdate();
                 try
                 {
                     windows.Items.Clear();
-                    windows.Items.AddRange(rows);
-                    if (rows.Length > 0) windows.SelectedIndex = 0;
+                    windows.Items.AddRange(rows.Cast<object>().ToArray());
+                    if (rows.Length > 0)
+                    {
+                        int selection = previous == null ? -1 : Array.FindIndex(rows, row => ReferenceEquals(row.Window, previous.Window)
+                            || (!saved && row.Window.SessionIdentity == previous.Window.SessionIdentity));
+                        windows.SelectedIndex = Math.Max(0, selection);
+                        if (selection >= top && selection < top + windows.VisibleItems)
+                            windows.TopIndex = Math.Min(top, windows.MaximumTopIndex);
+                    }
                 }
                 finally { windows.EndUpdate(); }
                 ResetTooltip();
@@ -359,7 +401,7 @@ namespace DeskRewind
 
             private void ArrangePreview()
             {
-                bool showWindows = saved && windows.Items.Count != 0 && Width >= Px(250) && Height >= Px(144);
+                bool showWindows = windows.Items.Count != 0 && Width >= Px(250) && Height >= Px(144);
                 windows.Visible = showWindows;
                 bool compact = Height < Px(270);
                 int top = Px(compact ? 66 : 76), inset = Px(13);
@@ -385,10 +427,10 @@ namespace DeskRewind
                 graphics.SmoothingMode = SmoothingMode.AntiAlias;
                 Glass.Panel(graphics, new RectangleF(.5f, .5f, Width - 1, Height - 1), Glass.Film, Glass.Rim, Px(14));
                 if (layout == null || Width < Px(100) || Height < Px(130)) return;
-                Glass.TextAt(graphics, saved ? layout.Name : "Current desktop", titleFont,
+                Glass.TextAt(graphics, layout.Name, titleFont,
                     new Rectangle(Px(18), Px(12), Width - Px(78), Px(28)), Glass.Text);
-                string stats = Count(layout.Screens.Count, "display");
-                if (saved) stats += "   ·   " + Count(layout.Windows.Count, "window");
+                string stats = (saved ? "Saved" : "Live") + "   ·   " + Count(layout.Screens.Count, "display")
+                    + "   ·   " + Count(layout.Windows.Count, "window");
                 Glass.TextAt(graphics, stats, detailFont, new Rectangle(Px(19), Px(42), Width - Px(70), Px(23)), Glass.Muted);
 
                 if (mapBounds.Width <= 0 || mapBounds.Height <= 0) return;
@@ -405,7 +447,7 @@ namespace DeskRewind
                 if (listBounds.Width > 0)
                 {
                     Glass.Panel(graphics, listBounds, Glass.Surface, Glass.Rim, Px(10));
-                    Glass.TextAt(graphics, "Captured windows", windowFont, new Rectangle(listBounds.X + Px(10), listBounds.Y + Px(4),
+                    Glass.TextAt(graphics, saved ? "Saved windows" : "Open windows", windowFont, new Rectangle(listBounds.X + Px(10), listBounds.Y + Px(4),
                         listBounds.Width - Px(42), Px(25)), Glass.Text);
                     Glass.TextAt(graphics, windows.Items.Count.ToString(), deviceFont,
                         new Rectangle(listBounds.Right - Px(34), listBounds.Y + Px(4), Px(24), Px(25)), Glass.Muted, TextFormatFlags.Right);
@@ -478,7 +520,8 @@ namespace DeskRewind
                 using (var divider = new Pen(Glass.Rim)) graphics.DrawLine(divider, mapBounds.X + Px(12), y, mapBounds.Right - Px(12), y);
                 using (var dot = new SolidBrush(Glass.InkFor(selected.Index)))
                     graphics.FillEllipse(dot, mapBounds.X + Px(13), y + Px(13), Px(7), Px(7));
-                Glass.TextAt(graphics, selected.Window.Title, detailFont, new Rectangle(mapBounds.X + Px(27), y, mapBounds.Width - Px(39), Px(33)), Glass.Text);
+                Glass.TextAt(graphics, selected.Display + " · " + selected.Window.Title, detailFont,
+                    new Rectangle(mapBounds.X + Px(27), y, mapBounds.Width - Px(39), Px(33)), Glass.Text);
             }
 
             private void DrawWindow(object sender, DrawItemEventArgs e)
@@ -496,7 +539,8 @@ namespace DeskRewind
                     graphics.FillEllipse(dot, bounds.X + Px(8), bounds.Y + Px(9), Px(6), Px(6));
                 int x = bounds.X + Px(20), width = bounds.Width - Px(25);
                 Glass.TextAt(graphics, row.Window.Title, windowFont, new Rectangle(x, bounds.Y + Px(1), width, Px(20)), Glass.Text);
-                Glass.TextAt(graphics, row.Detail, deviceFont, new Rectangle(x, bounds.Y + Px(19), width, Px(17)), Glass.Muted);
+                Glass.TextAt(graphics, row.Position, deviceFont, new Rectangle(x, bounds.Y + Px(18), width, Px(15)), Glass.Muted);
+                Glass.TextAt(graphics, row.Status, deviceFont, new Rectangle(x, bounds.Y + Px(33), width, Px(15)), row.IsOpen ? Glass.Accent : Glass.Muted);
             }
 
             private void UpdateTooltip(object sender, MouseEventArgs e)
@@ -522,17 +566,34 @@ namespace DeskRewind
             private sealed class WindowRow
             {
                 internal readonly WorkspaceWindow Window;
-                internal readonly string Detail;
+                internal readonly string Display, Position, Status;
                 internal readonly int Index;
+                internal readonly bool IsOpen;
 
-                internal WindowRow(WorkspaceWindow window, string display, int index)
+                internal WindowRow(WorkspaceWindow window, string display, int index, Dictionary<WorkspaceWindow, WindowLayout> matches,
+                    HashSet<string> openApps, Func<WorkspaceWindow, WindowLayout, bool> atSavedPosition)
                 {
                     Window = window;
                     Index = index;
-                    Detail = display + (window.State == DeskRewind.WindowState.Minimized ? " · Minimized" : "");
+                    Display = display;
+                    string state = window.State == DeskRewind.WindowState.Normal ? "" : " · " + window.State;
+                    if (matches == null)
+                    {
+                        Position = display + state;
+                        string appName = WorkspaceApps.AppName(window);
+                        Status = string.Equals(appName, window.Title, StringComparison.OrdinalIgnoreCase) ? "" : appName;
+                        IsOpen = true;
+                        return;
+                    }
+                    Position = "Saved on " + display + state;
+                    WindowLayout live;
+                    IsOpen = matches.TryGetValue(window, out live);
+                    if (!IsOpen) Status = openApps.Contains(window.AppKey) ? "Open app · window unmatched" : "Closed";
+                    else if (atSavedPosition(window, live)) Status = "At saved position";
+                    else Status = "Open on " + WorkspaceScreen.LabelFor(live.Display.Name);
                 }
 
-                public override string ToString() { return Window.Title + " · " + Detail; }
+                public override string ToString() { return Window.Title + " · " + Position + " · " + Status; }
             }
 
             private sealed class PreviewWindowList : ListBox

@@ -16,7 +16,7 @@ namespace DeskRewind
             var selected = index < 0 ? new WindowTile[0] : new[] { new WindowTile(focused.Frame.Rectangle, Glass.InkFor(index),
                 focused.State == WindowState.Minimized) };
             Paint(graphics, area, screens, occupied.ToArray(), selected, scale,
-                layout.Screens.Select(screen => screen.Label).ToArray(), labelFont);
+                layout.Screens.Select(screen => screen.Label + " · " + layout.Windows.Count(window => window.Device == screen.Device)).ToArray(), labelFont);
         }
 
         internal static void DrawHistory(Graphics graphics, Rectangle area, DesktopLayout layout, float scale)

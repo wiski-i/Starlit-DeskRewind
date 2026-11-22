@@ -60,12 +60,13 @@ namespace DeskRewind
         private readonly WorkspaceLibrary library;
         private DesktopLayout candidate;
         private int stablePolls;
-        private long resumeAt;
+        private long resumeAt, nextSampleAt, sampledVersion;
         private Timeline timeline;
         private WorkspaceForm workspaces;
         private bool applyingWorkspace, disposed;
         private IntPtr previousForeground;
         private string lastWorkspaceStatus;
+        private Guid? lastCaptureToShow;
 
         internal DeskRewindApp(EventWaitHandle openSignal, WorkspaceStore store)
         {
@@ -134,14 +135,20 @@ namespace DeskRewind
                 candidate = null;
                 return;
             }
+            long now = clock.ElapsedMilliseconds;
+            long version = desktop.ChangeVersion;
+            if (candidate != null && stablePolls >= 2 && sampledVersion == version && now < nextSampleAt) return;
+            sampledVersion = version;
+            nextSampleAt = now + 1800;
             var current = Capture();
             if (current == null) return;
+            if (workspaces != null && workspaces.WindowState != FormWindowState.Minimized) workspaces.UpdateDesktop(current);
             if (candidate == null || !candidate.SamePlacement(current))
             {
                 candidate = current;
                 stablePolls = 0;
             }
-            if (++stablePolls != 2) return;
+            if (stablePolls >= 2 || ++stablePolls != 2) return;
             if (timeline == null) history.Record(current);
             else timeline.RaiseSelection();
         }
@@ -199,6 +206,8 @@ namespace DeskRewind
             if (workspaces != null)
             {
                 if (workspaces.WindowState == FormWindowState.Minimized) workspaces.WindowState = FormWindowState.Normal;
+                var live = Capture();
+                if (live != null) workspaces.UpdateDesktop(live);
                 workspaces.Activate();
                 return;
             }
@@ -209,8 +218,9 @@ namespace DeskRewind
             editor.FormClosed += (sender, args) => { if (workspaces == editor) workspaces = null; };
             workspaces = editor;
             var saved = library.Read();
-            editor.RefreshLayouts(saved, null, library.LoadError ?? lastWorkspaceStatus ?? library.LoadNotice
-                ?? (saved.Length == 0 ? "Capture your first layout." : ""));
+            editor.RefreshLayouts(saved, lastCaptureToShow, library.LoadError ?? lastWorkspaceStatus ?? library.LoadNotice
+                ?? "Capture layout saves the open windows shown in Live desktop.");
+            lastCaptureToShow = null;
             editor.SetBusy(applyingWorkspace, applyingWorkspace ? "Restoring layout…" : null);
             editor.Show();
             editor.Activate();
@@ -241,8 +251,14 @@ namespace DeskRewind
             try
             {
                 var layout = library.Capture(desktopLayout);
-                lastWorkspaceStatus = "Layout saved.";
-                if (workspaces != null) workspaces.RefreshLayouts(library.Read(), layout.Id, lastWorkspaceStatus);
+                lastWorkspaceStatus = string.Format("Saved {0} {1} across {2} {3}.", layout.Windows.Count,
+                    layout.Windows.Count == 1 ? "window" : "windows", layout.Screens.Count, layout.Screens.Count == 1 ? "display" : "displays");
+                if (workspaces != null)
+                {
+                    workspaces.UpdateDesktop(desktopLayout);
+                    workspaces.RefreshLayouts(library.Read(), layout.Id, lastWorkspaceStatus);
+                }
+                else lastCaptureToShow = layout.Id;
                 if (workspaces == null || Native.GetForegroundWindow() != workspaces.Handle) Notify(lastWorkspaceStatus);
             }
             catch (Exception exception)
@@ -298,7 +314,7 @@ namespace DeskRewind
             string result = null;
             try
             {
-                result = await WorkspaceRestore.Apply(workspace, launchMissing, Capture, message =>
+                result = "Last restore: " + await WorkspaceRestore.Apply(workspace, launchMissing, Capture, message =>
                 {
                     if (workspaces != null) workspaces.SetBusy(true, message);
                 });

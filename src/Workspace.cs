@@ -43,7 +43,8 @@ namespace DeskRewind
             Work = new SavedBounds(display.Work);
         }
 
-        internal string Label { get { return Device.Replace(@"\\.\DISPLAY", "Display "); } }
+        internal string Label { get { return LabelFor(Device); } }
+        internal static string LabelFor(string device) { return device.Replace(@"\\.\DISPLAY", "Display "); }
         internal Display Resolve(Display[] displays)
         {
             if (!string.IsNullOrEmpty(MonitorId))
@@ -153,14 +154,12 @@ namespace DeskRewind
 
         internal Workspace Capture(DesktopLayout desktop)
         {
-            var layout = Workspace.FromDesktop(desktop, true);
+            var layout = WorkspaceApps.Snapshot(desktop, WorkspaceApps.ReadWindows(desktop), true);
             layout.SavedAt = DateTime.UtcNow;
             layout.LaunchMissing = true;
             string label = "Layout " + layout.SavedAt.ToLocalTime().ToString("d MMM, HH:mm");
             layout.Name = label;
             for (int number = 2; layouts.Any(item => item.Name == layout.Name); number++) layout.Name = label + " (" + number + ")";
-            foreach (var open in WorkspaceApps.ReadWindows(desktop))
-                layout.Windows.Add(open.SaveTo(layout.Screens.First(screen => screen.Device == open.Layout.Display.Name)));
             Write(layouts.Concat(new[] { layout }).ToList());
             return layout;
         }

@@ -13,6 +13,7 @@ namespace DeskRewind
             internal readonly WorkspaceWindow Saved;
             internal long Identity;
             internal int LaunchedProcess;
+            internal WindowLayout Live;
 
             internal Slot(WorkspaceWindow saved) { Saved = saved; }
         }
@@ -21,14 +22,14 @@ namespace DeskRewind
         {
             var desktop = capture();
             if (desktop == null) return "Windows could not read the current displays.";
-            var slots = workspace.Windows.OrderByDescending(window => !string.IsNullOrEmpty(window.TitleMatch))
-                .Select(window => new Slot(window)).ToList();
+            var slots = SlotsFor(workspace);
             var initialWindows = WorkspaceApps.ReadWindows(desktop);
             var initial = new HashSet<long>(initialWindows.Select(window => window.Layout.Identity));
             var used = new HashSet<long>();
             var pending = new List<Slot>();
 
             MatchSlots(workspace, slots, initialWindows, desktop.Displays, used, null);
+            Position(workspace, slots, desktop.Displays);
             if (launchMissing)
             {
                 var requested = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -54,6 +55,7 @@ namespace DeskRewind
                     desktop = capture();
                     if (desktop == null) continue;
                     MatchSlots(workspace, pending, WorkspaceApps.ReadWindows(desktop), desktop.Displays, used, initial);
+                    Position(workspace, pending, desktop.Displays);
                     pending.RemoveAll(slot => slot.Identity != 0);
                 }
             }
@@ -94,6 +96,25 @@ namespace DeskRewind
             return result;
         }
 
+        internal static Dictionary<WorkspaceWindow, WindowLayout> Inspect(Workspace workspace, DesktopLayout desktop,
+            WorkspaceApps.OpenWindow[] open)
+        {
+            var slots = SlotsFor(workspace);
+            MatchSlots(workspace, slots, open, desktop.Displays, new HashSet<long>(), null);
+            return slots.Where(slot => slot.Live != null).ToDictionary(slot => slot.Saved, slot => slot.Live);
+        }
+
+        internal static bool IsAtSavedPosition(Workspace workspace, WorkspaceWindow saved, WindowLayout live, Display[] displays)
+        {
+            return IsPlaced(Target(workspace, saved, live, displays), live);
+        }
+
+        private static List<Slot> SlotsFor(Workspace workspace)
+        {
+            return workspace.Windows.OrderByDescending(window => !string.IsNullOrEmpty(window.TitleMatch))
+                .Select(window => new Slot(window)).ToList();
+        }
+
         private static void MatchSlots(Workspace workspace, List<Slot> slots, WorkspaceApps.OpenWindow[] open, Display[] displays,
             HashSet<long> used, HashSet<long> initial)
         {
@@ -107,14 +128,14 @@ namespace DeskRewind
                     var ownProcess = choices.Where(item => item.Layout.Process == (uint)slot.LaunchedProcess).ToArray();
                     window = ownProcess.FirstOrDefault(item => SameTitle(slot, item));
                 }
-                if (window != null) Place(workspace, slot, window.Layout, displays, used);
+                if (window != null) Bind(slot, window.Layout, used);
             }
 
             foreach (var slot in slots.Where(item => item.Identity == 0))
             {
                 var exact = Candidates(slot, open, used, initial).Where(item => SameTitle(slot, item))
                     .OrderBy(item => Distance(workspace, slot.Saved, item.Layout, displays)).FirstOrDefault();
-                if (exact != null) Place(workspace, slot, exact.Layout, displays, used);
+                if (exact != null) Bind(slot, exact.Layout, used);
             }
 
             foreach (var slot in slots.Where(item => item.Identity == 0))
@@ -125,7 +146,7 @@ namespace DeskRewind
                         .Where(item => item.Layout.Process == (uint)slot.LaunchedProcess).Take(2).ToArray();
                     if (ownProcess.Length == 1)
                     {
-                        Place(workspace, slot, ownProcess[0].Layout, displays, used);
+                        Bind(slot, ownProcess[0].Layout, used);
                         continue;
                     }
                 }
@@ -134,7 +155,7 @@ namespace DeskRewind
                 if (!hasTitleHint && slots.Count(other => other.Identity == 0 && string.Equals(other.Saved.AppKey,
                     slot.Saved.AppKey, StringComparison.OrdinalIgnoreCase)) != 1) continue;
                 var choices = Candidates(slot, open, used, initial).Take(2).ToArray();
-                if (choices.Length == 1) Place(workspace, slot, choices[0].Layout, displays, used);
+                if (choices.Length == 1) Bind(slot, choices[0].Layout, used);
             }
         }
 
@@ -167,12 +188,20 @@ namespace DeskRewind
                 + Math.Abs((long)target.Width - source.Width) + Math.Abs((long)target.Height - source.Height);
         }
 
-        private static void Place(Workspace workspace, Slot slot, WindowLayout live, Display[] displays, HashSet<long> used)
+        private static void Bind(Slot slot, WindowLayout live, HashSet<long> used)
         {
             used.Add(live.Identity);
             slot.Identity = live.Identity;
-            var target = Target(workspace, slot.Saved, live, displays);
-            if (!IsPlaced(target, live)) DesktopWindows.Restore(target, live, displays);
+            slot.Live = live;
+        }
+
+        private static void Position(Workspace workspace, IEnumerable<Slot> slots, Display[] displays)
+        {
+            foreach (var slot in slots.Where(item => item.Live != null))
+            {
+                var target = Target(workspace, slot.Saved, slot.Live, displays);
+                if (!IsPlaced(target, slot.Live)) DesktopWindows.Restore(target, slot.Live, displays);
+            }
         }
 
         private static WindowLayout Target(Workspace workspace, WorkspaceWindow saved, WindowLayout live, Display[] displays)

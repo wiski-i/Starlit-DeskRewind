@@ -67,8 +67,17 @@ namespace DeskRewind
 
         internal static Display Nearest(Display[] displays, Rectangle bounds)
         {
-            var center = new Native.Point(bounds.Left + bounds.Width / 2, bounds.Top + bounds.Height / 2);
-            IntPtr handle = Native.MonitorFromPoint(center, 2);
+            if (bounds.Width <= 0 || bounds.Height <= 0)
+            {
+                var point = new Native.Point(bounds.X, bounds.Y);
+                return Find(displays, Native.MonitorFromPoint(point, 2));
+            }
+            var rectangle = new Native.Rect(bounds);
+            return Find(displays, Native.MonitorFromRect(ref rectangle, 2));
+        }
+
+        internal static Display Find(Display[] displays, IntPtr handle)
+        {
             return displays.FirstOrDefault(display => display.Handle == handle) ?? displays.First();
         }
 
@@ -159,6 +168,17 @@ namespace DeskRewind
             }
             return true;
         }
+
+        internal bool SameWindows(DesktopLayout other)
+        {
+            if (!SamePlacement(other)) return false;
+            for (int i = 0; i < Windows.Length; i++)
+            {
+                if (Windows[i].Identity != other.Windows[i].Identity || Windows[i].Title != other.Windows[i].Title
+                    || Windows[i].Display.Name != other.Windows[i].Display.Name) return false;
+            }
+            return true;
+        }
     }
 
     internal sealed class LayoutHistory
@@ -181,19 +201,28 @@ namespace DeskRewind
         private readonly Dictionary<IntPtr, WindowLayout> identities = new Dictionary<IntPtr, WindowLayout>();
         private readonly HashSet<IntPtr> moving = new HashSet<IntPtr>();
         private readonly Native.WinEvent eventHandler;
-        private readonly IntPtr moveHook, destroyHook, shell;
+        private readonly List<IntPtr> hooks = new List<IntPtr>();
+        private readonly IntPtr shell;
         private readonly uint process;
         private long nextIdentity;
+        internal long ChangeVersion { get; private set; }
 
         internal DesktopWindows()
         {
             using (var current = System.Diagnostics.Process.GetCurrentProcess()) process = (uint)current.Id;
             shell = Native.GetShellWindow();
             eventHandler = OnWindowEvent;
-            moveHook = Native.SetWinEventHook(Native.EventMoveStart, Native.EventMoveEnd, IntPtr.Zero,
-                eventHandler, 0, 0, Native.SkipOwnProcess);
-            destroyHook = Native.SetWinEventHook(Native.EventDestroy, Native.EventDestroy, IntPtr.Zero,
-                eventHandler, 0, 0, Native.SkipOwnProcess);
+            Watch(Native.EventMoveStart, Native.EventMoveEnd);
+            Watch(Native.EventMinimizeStart, Native.EventMinimizeEnd);
+            Watch(Native.EventDestroy, Native.EventHide);
+            Watch(Native.EventLocation, Native.EventName);
+            Watch(Native.EventCloaked, Native.EventUncloaked);
+        }
+
+        private void Watch(uint first, uint last)
+        {
+            IntPtr hook = Native.SetWinEventHook(first, last, IntPtr.Zero, eventHandler, 0, 0, Native.SkipOwnProcess);
+            if (hook != IntPtr.Zero) hooks.Add(hook);
         }
 
         internal bool IsMoving
@@ -207,10 +236,18 @@ namespace DeskRewind
 
         private void OnWindowEvent(IntPtr hook, uint id, IntPtr window, int objectId, int childId, uint thread, uint time)
         {
-            if (window == IntPtr.Zero || objectId != 0 || childId != 0) return;
+            if (window == IntPtr.Zero || window == shell || objectId != 0 || childId != 0) return;
+            if (id == Native.EventDestroy)
+            {
+                bool known = identities.Remove(window);
+                if (moving.Remove(window) || known) ChangeVersion++;
+                return;
+            }
+            if (!identities.ContainsKey(window) && ((id == Native.EventName || id == Native.EventLocation)
+                || Native.GetAncestor(window, 2) != window)) return;
             if (id == Native.EventMoveStart) moving.Add(window);
-            else moving.Remove(window);
-            if (id == Native.EventDestroy) identities.Remove(window);
+            else if (id == Native.EventMoveEnd || id == Native.EventHide) moving.Remove(window);
+            ChangeVersion++;
         }
 
         internal DesktopLayout Capture(Display[] displays)
@@ -218,6 +255,7 @@ namespace DeskRewind
             if (displays.Length == 0) return null;
             var windows = new List<WindowLayout>();
             var title = new StringBuilder(512);
+            var className = new StringBuilder(128);
             Native.EnumWindows(delegate(IntPtr handle, IntPtr data)
             {
                 if (handle == shell || !Native.IsWindowVisible(handle)) return true;
@@ -225,9 +263,12 @@ namespace DeskRewind
                 uint thread = Native.GetWindowThreadProcessId(handle, out pid);
                 if (thread == 0 || pid == process) return true;
                 int styles = Native.GetWindowLong(handle, -20);
-                if ((styles & Native.AppWindow) == 0 && ((styles & Native.ToolWindow) != 0
+                if ((styles & Native.AppWindow) == 0 && ((styles & (Native.ToolWindow | Native.NoActivate)) != 0
                     || Native.GetWindow(handle, 4) != IntPtr.Zero)) return true;
                 if (Native.GetWindowText(handle, title, title.Capacity) == 0) return true;
+                Native.GetClassName(handle, className, className.Capacity);
+                string kind = className.ToString();
+                if (kind == "Shell_TrayWnd" || kind == "Shell_SecondaryTrayWnd" || kind == "Progman" || kind == "WorkerW") return true;
                 int cloaked;
                 if (Native.DwmGetWindowAttribute(handle, Native.DwmCloaked, out cloaked, sizeof(int)) == 0 && cloaked != 0)
                     return true;
@@ -247,7 +288,7 @@ namespace DeskRewind
                 }
 
                 Rectangle rawNormal = placement.NormalPosition.ToRectangle();
-                var display = minimized ? DeskRewind.Display.Nearest(displays, rawNormal)
+                var display = minimized ? DeskRewind.Display.Find(displays, Native.MonitorFromWindow(handle, 2))
                     : DeskRewind.Display.Nearest(displays, frame);
                 WindowLayout known;
                 long identity = identities.TryGetValue(handle, out known) && known.Process == pid && known.Thread == thread
@@ -312,8 +353,8 @@ namespace DeskRewind
 
         public void Dispose()
         {
-            if (moveHook != IntPtr.Zero) Native.UnhookWinEvent(moveHook);
-            if (destroyHook != IntPtr.Zero) Native.UnhookWinEvent(destroyHook);
+            foreach (var hook in hooks) Native.UnhookWinEvent(hook);
+            hooks.Clear();
         }
     }
 }

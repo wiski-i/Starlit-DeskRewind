@@ -65,6 +65,33 @@ namespace DeskRewind
             return desktop.Windows.Select(window => new OpenWindow(window)).ToArray();
         }
 
+        internal static Workspace Snapshot(DesktopLayout desktop, OpenWindow[] open, bool identifyMonitors)
+        {
+            var layout = Workspace.FromDesktop(desktop, identifyMonitors);
+            foreach (var window in open)
+                layout.Windows.Add(window.SaveTo(layout.Screens.First(screen => screen.Device == window.Layout.Display.Name)));
+            return layout;
+        }
+
+        internal static string AppName(WorkspaceWindow window)
+        {
+            var executable = window.Executable ?? "";
+            int separator = executable.LastIndexOfAny(new[] { '\\', '/' });
+            string name = executable.Substring(separator + 1);
+            if (name.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)) name = name.Substring(0, name.Length - 4);
+            switch (name.ToLowerInvariant())
+            {
+                case "chrome": return "Google Chrome";
+                case "msedge": return "Microsoft Edge";
+                case "code": return "Visual Studio Code";
+                case "explorer": return "File Explorer";
+                case "windowsterminal": return "Windows Terminal";
+                case "discord": return "Discord";
+                case "applicationframehost": return "Windows app";
+                default: return name.Length == 0 ? "App name unavailable" : name;
+            }
+        }
+
         internal static Uri WebAddress(string target)
         {
             Uri uri;

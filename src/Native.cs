@@ -28,7 +28,15 @@ namespace DeskRewind
         internal const uint SwpAsync = 0x4000;
         internal const uint EventMoveStart = 0x000A;
         internal const uint EventMoveEnd = 0x000B;
+        internal const uint EventMinimizeStart = 0x0016;
+        internal const uint EventMinimizeEnd = 0x0017;
         internal const uint EventDestroy = 0x8001;
+        internal const uint EventShow = 0x8002;
+        internal const uint EventHide = 0x8003;
+        internal const uint EventLocation = 0x800B;
+        internal const uint EventName = 0x800C;
+        internal const uint EventCloaked = 0x8017;
+        internal const uint EventUncloaked = 0x8018;
         internal const uint SkipOwnProcess = 2;
         internal const int DwmExtendedFrameBounds = 9;
         internal const int DwmCloaked = 14;
@@ -135,6 +143,8 @@ namespace DeskRewind
         [DllImport("user32.dll", CharSet = CharSet.Unicode)] internal static extern bool GetMonitorInfo(IntPtr monitor, ref MonitorInfo info);
         [DllImport("user32.dll", CharSet = CharSet.Unicode)] internal static extern bool EnumDisplayDevices(string device, uint index, ref DisplayDevice display, uint flags);
         [DllImport("user32.dll")] internal static extern IntPtr MonitorFromPoint(Point point, uint flags);
+        [DllImport("user32.dll")] internal static extern IntPtr MonitorFromRect(ref Rect bounds, uint flags);
+        [DllImport("user32.dll")] internal static extern IntPtr MonitorFromWindow(IntPtr window, uint flags);
         [DllImport("user32.dll")] internal static extern bool RegisterHotKey(IntPtr window, int id, uint modifiers, uint key);
         [DllImport("user32.dll")] internal static extern bool UnregisterHotKey(IntPtr window, int id);
         [DllImport("user32.dll")] internal static extern IntPtr GetForegroundWindow();
@@ -148,6 +158,8 @@ namespace DeskRewind
         [DllImport("user32.dll", EntryPoint = "GetWindowLongW")] internal static extern int GetWindowLong(IntPtr window, int index);
         [DllImport("user32.dll")] internal static extern uint GetWindowThreadProcessId(IntPtr window, out uint process);
         [DllImport("user32.dll", CharSet = CharSet.Unicode)] internal static extern int GetWindowText(IntPtr window, System.Text.StringBuilder text, int maxCount);
+        [DllImport("user32.dll", CharSet = CharSet.Unicode)] internal static extern int GetClassName(IntPtr window, System.Text.StringBuilder name, int maxCount);
+        [DllImport("user32.dll")] internal static extern IntPtr GetAncestor(IntPtr window, uint flags);
         [DllImport("user32.dll")] internal static extern bool GetWindowRect(IntPtr window, out Rect bounds);
         [DllImport("user32.dll")] internal static extern bool GetWindowPlacement(IntPtr window, ref Placement placement);
         [DllImport("user32.dll")] internal static extern bool SetWindowPlacement(IntPtr window, ref Placement placement);

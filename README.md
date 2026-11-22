@@ -23,11 +23,11 @@ DeskRewind keeps up to 32 recent layouts in memory while it runs, including the 
 
 ## Save a workspace
 
-1. Position your application windows directly on the Windows desktop.
-2. Press **Ctrl+Alt+S** or choose **Capture layout** from DeskRewind or its tray menu. DeskRewind immediately saves the open windows and their positions across your displays. Each capture gets a timestamped name you can rename later.
+1. Position your application windows directly on the Windows desktop. Open **Live desktop** to see the windows DeskRewind can capture, their display, and whether they are minimized or maximized.
+2. Press **Ctrl+Alt+S** or choose **Capture layout** from DeskRewind or its tray menu. DeskRewind saves the open windows and their positions across your displays and selects the new layout. Each capture gets a timestamped name you can rename later.
 3. Select a saved layout and click **Restore** or press **Enter**. Set **Open closed apps** to choose whether that layout starts closed applications. DeskRewind remembers this choice for each layout, including when you restore it from the tray.
 
-Select a row in **Captured windows** to highlight its saved position on the monitor map. The list includes the display and minimized state for each window. Hover over a title to read it in full.
+Select a row in **Saved windows** to highlight its saved position on the monitor map. Each row also shows whether Windows reports the window at that position, open elsewhere, closed, or unmatched. Hover over a title to read it in full.
 
 If the capture shortcut is in use, DeskRewind tries **Ctrl+Alt+Shift+S**. The registered combination appears in the app and the tray menu.
 
