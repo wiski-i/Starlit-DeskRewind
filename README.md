@@ -1,14 +1,14 @@
 <p align="center">
-  <img src="assets/logo.svg" width="88" height="88" alt="DeskRewind logo">
+  <img src="assets/logo.svg" width="88" height="88" alt="Starlit DeskRewind logo">
 </p>
 
-# DeskRewind
+# Starlit DeskRewind
 
-DeskRewind is a Windows tray utility for switching between saved workspaces and rewinding recent window arrangements.
+Starlit DeskRewind is a Windows tray utility for switching between saved workspaces and rewinding recent window arrangements.
 
 ## Run
 
-Download `DeskRewind.exe` from the [latest release](https://github.com/wiski-i/DeskRewind/releases/latest) or build it from source. Run it on Windows 10 or 11 with .NET Framework 4.8. DeskRewind opens your saved layouts and stays in the notification area when you close the window.
+Build DeskRewind from source, then open `bin\DeskRewind.exe` on Windows 10 or 11 with .NET Framework 4.8. DeskRewind opens your saved layouts and stays in the notification area when you close the window.
 
 1. Move or resize a few windows, pausing briefly between arrangements.
 2. Press **Ctrl+Alt+Z**. The filmstrip opens with the previous arrangement selected.

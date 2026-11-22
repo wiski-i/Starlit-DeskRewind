@@ -246,7 +246,7 @@ namespace DeskRewind
                 graphics.DrawLine(border, 1, Px(49), Width - 2, Px(49));
             }
             Glass.DrawMark(graphics, new Rectangle(Px(20), Px(12), Px(26), Px(26)));
-            Glass.TextAt(graphics, "DeskRewind", captionFont, new Rectangle(Px(55), Px(8), Px(150), Px(34)), Glass.Text);
+            Glass.TextAt(graphics, DeskRewindApp.DisplayName, captionFont, new Rectangle(Px(55), Px(8), Px(210), Px(34)), Glass.Text);
             Glass.TextAt(graphics, "Saved layouts", headingFont,
                 new Rectangle(Px(26), Px(67), capture.Left - Px(38), Px(50)), Glass.Text);
             if (captureShortcut != null)

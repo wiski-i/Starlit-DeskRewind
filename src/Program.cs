@@ -7,6 +7,9 @@ using System.Runtime.InteropServices;
 using System.Threading;
 using System.Windows.Forms;
 
+[assembly: System.Reflection.AssemblyTitle("Starlit DeskRewind")]
+[assembly: System.Reflection.AssemblyProduct("Starlit DeskRewind")]
+
 namespace DeskRewind
 {
     internal static class Program
@@ -40,6 +43,7 @@ namespace DeskRewind
 
     internal sealed class DeskRewindApp : ApplicationContext
     {
+        internal const string DisplayName = "Starlit DeskRewind";
         private const int HistoryHotkey = 1;
         private const int CaptureHotkey = 2;
         private const uint Modifiers = 0x4003;
@@ -87,8 +91,8 @@ namespace DeskRewind
             menu.Items.Add(new ToolStripMenuItem("Window history", null, (sender, args) => OpenTimeline())
                 { ShortcutKeyDisplayString = historyShortcut ?? "" });
             menu.Items.Add(new ToolStripSeparator());
-            menu.Items.Add("Exit DeskRewind", null, (sender, args) => ExitThread());
-            tray = new NotifyIcon { Icon = icon, Text = "DeskRewind", ContextMenuStrip = menu, Visible = true };
+            menu.Items.Add("Exit " + DisplayName, null, (sender, args) => ExitThread());
+            tray = new NotifyIcon { Icon = icon, Text = DisplayName, ContextMenuStrip = menu, Visible = true };
             tray.MouseClick += (sender, args) => { if (args.Button == MouseButtons.Left) OpenWorkspaces(); };
             timer = new System.Windows.Forms.Timer { Interval = 275 };
             timer.Tick += OnTick;
@@ -342,7 +346,7 @@ namespace DeskRewind
 
         private void Notify(string message)
         {
-            if (!disposed) tray.ShowBalloonTip(3000, "DeskRewind", message, ToolTipIcon.None);
+            if (!disposed) tray.ShowBalloonTip(3000, DisplayName, message, ToolTipIcon.None);
         }
 
         protected override void Dispose(bool disposing)
