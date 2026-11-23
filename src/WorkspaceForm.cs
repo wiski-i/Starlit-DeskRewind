@@ -67,6 +67,11 @@ namespace DeskRewind
             layouts = new ListBox { AccessibleName = "Live desktop and saved layouts", BorderStyle = BorderStyle.None, DrawMode = DrawMode.OwnerDrawFixed,
                 ItemHeight = Px(59), IntegralHeight = false, BackColor = Glass.Film, ForeColor = Glass.Text, Font = rowFont };
             layouts.DrawItem += DrawLayout;
+            // The native scrollbar is light by default; give it the dark Windows style.
+            layouts.HandleCreated += (sender, args) =>
+            {
+                if (!SystemInformation.HighContrast) Native.SetWindowTheme(layouts.Handle, "DarkMode_Explorer", null);
+            };
             layouts.SelectedIndexChanged += (sender, args) => ShowSelection();
             layouts.DoubleClick += (sender, args) => { if (!busy && Selected != null) restoreLayout(Selected, launch.Checked); };
             layouts.KeyDown += (sender, args) =>
