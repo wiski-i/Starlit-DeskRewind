@@ -25,6 +25,24 @@ namespace DeskRewind
         internal static Color InkFor(WindowLayout window) { return InkFor(window.Identity - 1); }
         internal static Color InkFor(long index) { return WindowColors[(int)(index % WindowColors.Length)]; }
 
+        /// <summary>Tooltip in the app palette; the system one is a light box.</summary>
+        internal static ToolTip Tip(int initialDelay = 500, int reshowDelay = 100, int autoPopDelay = 5000)
+        {
+            var tip = new ToolTip
+            {
+                OwnerDraw = true, BackColor = Card, ForeColor = Text,
+                InitialDelay = initialDelay, ReshowDelay = reshowDelay, AutoPopDelay = autoPopDelay
+            };
+            tip.Draw += (sender, e) =>
+            {
+                e.Graphics.Clear(Card);
+                using (var rim = new Pen(Rim)) e.Graphics.DrawRectangle(rim, 0, 0, e.Bounds.Width - 1, e.Bounds.Height - 1);
+                TextRenderer.DrawText(e.Graphics, e.ToolTipText, e.Font, e.Bounds, Text,
+                    TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPrefix);
+            };
+            return tip;
+        }
+
         internal static Font Font(float size, bool strong)
         {
             return new Font(strong ? "Segoe UI Semibold" : "Segoe UI", size, FontStyle.Regular, GraphicsUnit.Pixel);

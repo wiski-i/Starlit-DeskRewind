@@ -19,7 +19,7 @@ namespace DeskRewind
         private readonly GlassToggle launch;
         private readonly Label feedback;
         private readonly GlassMenu menu = new GlassMenu();
-        private readonly ToolTip feedbackTip = new ToolTip();
+        private readonly ToolTip feedbackTip = Glass.Tip();
         private readonly List<Font> fonts = new List<Font>();
         private readonly Font captionFont, headingFont, rowFont, smallFont;
         private readonly string captureShortcut;
@@ -334,7 +334,7 @@ namespace DeskRewind
             private readonly float scale;
             private readonly Font titleFont, detailFont, deviceFont, windowFont;
             private readonly PreviewWindowList windows;
-            private readonly ToolTip titles = new ToolTip { InitialDelay = 450, ReshowDelay = 100, AutoPopDelay = 9000 };
+            private readonly ToolTip titles = Glass.Tip(450, 100, 9000);
             private Workspace layout;
             private bool saved;
             private int hoveredRow = -1;
